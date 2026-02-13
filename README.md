@@ -96,3 +96,69 @@ enum Foo {
 ```
 
 This generates `MyBar` instead of `FooBar`. Note that `prefix` has no effect when using `module`.
+
+### `impl_into_parent = "ParentEnum"` or `impl_into_parent = "ParentEnum::VariantName"`
+
+Generates `From` implementations for converting variant structs directly to a parent enum.
+
+```rust
+#[first_class_variants(
+    module = "client",
+    derive(Debug, Clone),
+    impl_into_parent = "EventData"
+)]
+#[derive(Debug, Clone)]
+pub enum Client {
+    StateChanged { old_state: String, new_state: String },
+    ErrorOccurred { message: String },
+}
+
+#[derive(Debug, Clone)]
+pub enum EventData {
+    Client(Client),
+}
+```
+
+Generates these additional impls:
+
+```rust
+impl From<client::StateChanged> for EventData {
+    fn from(value: client::StateChanged) -> Self {
+        Self::Client(Client::from(value))
+    }
+}
+
+impl From<client::ErrorOccurred> for EventData {
+    fn from(value: client::ErrorOccurred) -> Self {
+        Self::Client(Client::from(value))
+    }
+}
+```
+
+Usage:
+
+```rust
+let event: EventData = client::StateChanged {
+    old_state: "running".into(),
+    new_state: "stopped".into(),
+}.into();
+```
+
+When the parent's variant name doesn't match the enum name:
+
+```rust
+#[first_class_variants(
+    derive(Debug, Clone),
+    impl_into_parent = "Message::User"
+)]
+pub enum UserEvent {
+    LoggedIn { user_id: String },
+    LoggedOut,
+}
+
+pub enum Message {
+    User(UserEvent),
+}
+```
+
+Defaults to the enum name when the variant isn't specified.

@@ -3,8 +3,8 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::quote;
 use syn::{
-    parse_macro_input, punctuated::Punctuated, AttributeArgs, Field, Fields, ItemEnum, Lit,
-    Meta, MetaNameValue, NestedMeta, Token, VisPublic,
+    parse_macro_input, parse_str, punctuated::Punctuated, AttributeArgs, Field, Fields, ItemEnum,
+    Lit, Meta, MetaNameValue, NestedMeta, Path, Token, VisPublic,
 };
 
 #[proc_macro_attribute]
@@ -16,10 +16,13 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
     let enum_attrs = &input.attrs;
     let variants = &input.variants;
 
-    // parse module="..." and prefix="..." params if present
+    // parse module, prefix, impl_into_parent params if present
     // and filter them out from the attributes to pass through
     let mut mod_name = None;
     let mut custom_prefix = None;
+    
+    let mut parent_type: Option<Path> = None;
+    let mut parent_variant: Option<Ident> = None;
     let mut passthrough_attrs = Vec::new();
 
     for arg in &attr_args {
@@ -28,12 +31,32 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
                 if let Lit::Str(s) = lit {
                     mod_name = Some(Ident::new(&s.value(), Span::call_site()));
                 }
-                continue; // skip it
+                continue;
             } else if path.is_ident("prefix") {
                 if let Lit::Str(s) = lit {
                     custom_prefix = Some(s.value());
                 }
-                continue; // skip it
+                continue;
+            } else if path.is_ident("impl_into_parent") {
+                if let Lit::Str(s) = lit {
+                    let value = s.value();
+                    // support "ParentType::VariantName" syntax
+                    if let Some(idx) = value.rfind("::") {
+                        let (parent_str, variant_str) = value.split_at(idx);
+                        let variant_str = &variant_str[2..];
+                        parent_type = Some(
+                            parse_str(parent_str)
+                                .expect("impl_into_parent parent type must be a valid path"),
+                        );
+                        parent_variant = Some(Ident::new(variant_str, Span::call_site()));
+                    } else {
+                        parent_type = Some(
+                            parse_str(&value)
+                                .expect("impl_into_parent must be a valid type path"),
+                        );
+                    }
+                }
+                continue;
             }
         }
         passthrough_attrs.push(arg);
@@ -70,6 +93,26 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
             Fields::Named(_) => None,
             _ => Some(<Token!(;)>::default()),
         };
+
+        let struct_path = if let Some(ref mod_ident) = mod_name {
+            quote! { #mod_ident::#struct_ident }
+        } else {
+            quote! { #struct_ident }
+        };
+
+        let parent_from_impl = if let Some(ref parent) = parent_type {
+            let variant_in_parent = parent_variant.as_ref().unwrap_or(name);
+            quote! {
+                impl From<#struct_path> for #parent {
+                    fn from(value: #struct_path) -> Self {
+                        Self::#variant_in_parent(#name::from(value))
+                    }
+                }
+            }
+        } else {
+            quote! {}
+        };
+
         quote! {
             #(
                 #[#passthrough_attrs]
@@ -99,6 +142,7 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
                     }
                 }
             }
+            #parent_from_impl
         }
     });
     let wrapper_variants = variants.iter().map(|v| {

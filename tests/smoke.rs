@@ -21,6 +21,45 @@ mod with_module {
         Corge { grault: u16, garply: u32 },
     }
 }
+
+mod with_parent {
+    use first_class_variants::first_class_variants;
+
+    #[first_class_variants(
+        module = "client",
+        derive(Debug, PartialEq, Eq, Clone),
+        impl_into_parent = "EventData"
+    )]
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum Client {
+        StateChanged { old_state: String, new_state: String },
+        ErrorOccurred { message: String },
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum EventData {
+        Client(Client),
+    }
+}
+
+mod with_parent_no_module {
+    use first_class_variants::first_class_variants;
+
+    #[first_class_variants(
+        derive(Debug, PartialEq, Eq, Clone),
+        impl_into_parent = "Message::User"
+    )]
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum UserEvent {
+        LoggedIn { user_id: String },
+        LoggedOut,
+    }
+
+    #[derive(Debug, PartialEq, Eq, Clone)]
+    pub enum Message {
+        User(UserEvent),
+    }
+}
 mod tests {
     use crate::generated::*;
     use std::convert::TryInto;
@@ -97,5 +136,61 @@ mod tests {
         } else {
             false
         });
+    }
+
+    #[test]
+    fn works_with_parent() {
+        use crate::with_parent::{client::*, Client, EventData};
+
+        let state_changed = StateChanged {
+            old_state: "running".to_string(),
+            new_state: "stopped".to_string(),
+        };
+        let event: EventData = state_changed.clone().into();
+
+        match event {
+            EventData::Client(Client::StateChanged(s)) => {
+                assert_eq!(s.old_state, "running");
+                assert_eq!(s.new_state, "stopped");
+            }
+            _ => unreachable!("event isn't an EventData::Client::StateChanged"),
+        }
+
+        let error = ErrorOccurred {
+            message: "connection failed".to_string(),
+        };
+        let event: EventData = error.into();
+
+        match event {
+            EventData::Client(Client::ErrorOccurred(e)) => {
+                assert_eq!(e.message, "connection failed");
+            }
+            _ => unreachable!("event isn't an EventData::Client::ErrorOccurred"),
+        }
+    }
+
+    #[test]
+    fn works_with_parent_no_module() {
+        use crate::with_parent_no_module::{Message, UserEvent, UserEventLoggedIn, UserEventLoggedOut};
+
+        let logged_in = UserEventLoggedIn {
+            user_id: "alice".to_string(),
+        };
+        let msg: Message = logged_in.into();
+
+        match msg {
+            Message::User(UserEvent::LoggedIn(u)) => {
+                assert_eq!(u.user_id, "alice");
+            }
+            _ => unreachable!("msg isn't a Message::User::LoggedIn"),
+        }
+
+        let logged_out = UserEventLoggedOut;
+        let msg: Message = logged_out.into();
+
+        match msg {
+            Message::User(UserEvent::LoggedOut(_)) => {},
+            _ => unreachable!("msg isn't a Message::User::LoggedOut"),
+        }
     }
 }
