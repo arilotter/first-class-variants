@@ -48,3 +48,51 @@ as well as any attributes on that specific variant.
 #[derive(Debug)]
 struct FooBar(u8);
 ```
+
+## Configuration Options
+
+### `module = "name"`
+
+By default, generated structs are created in the same scope as the enum with names prefixed by the enum name (e.g., `FooBar` for variant `Bar` in enum `Foo`). You can use the `module` parameter to generate the structs in a submodule instead:
+
+```rust
+#[first_class_variants(module = "variants", derive(PartialEq, Eq, Copy, Clone))]
+#[derive(Debug)]
+pub enum Baz {
+    Qux(u8),
+    Corge { grault: u16, garply: u32 },
+}
+```
+
+This generates:
+
+```rust
+pub mod variants {
+    #[derive(PartialEq, Eq, Copy, Clone)]
+    pub struct Qux(pub u8);
+
+    #[derive(PartialEq, Eq, Copy, Clone)]
+    pub struct Corge { pub grault: u16, pub garply: u32 }
+}
+
+#[derive(Debug)]
+pub enum Baz {
+    Qux(variants::Qux),
+    Corge(variants::Corge),
+}
+```
+
+When using a module, the struct names are not prefixed with the enum name.
+
+### `prefix = "CustomPrefix"`
+
+You can customize the prefix used for generated struct names:
+
+```rust
+#[first_class_variants(prefix = "My", derive(Clone))]
+enum Foo {
+    Bar(u8),
+}
+```
+
+This generates `MyBar` instead of `FooBar`. Note that `prefix` has no effect when using `module`.
