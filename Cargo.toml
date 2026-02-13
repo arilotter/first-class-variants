@@ -1,6 +1,6 @@
 [package]
 name = "first-class-variants"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Ari Lotter <arilotter@gmail.com>"]
 edition = "2018"
 description = "A procedural macro to generate first-class structs for enum variants"

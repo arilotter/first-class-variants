@@ -124,7 +124,7 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
                 #(#wrapper_variants,)*
             }
             #vis mod #mod_ident {
-                use super::#name;
+                use super::*;
                 #(#variant_structs)*
             }
         }
