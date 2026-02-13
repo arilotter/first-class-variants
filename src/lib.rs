@@ -3,8 +3,8 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::quote;
 use syn::{
-    parse_macro_input, punctuated::Punctuated, AttributeArgs, Field, Fields, ItemEnum, Token,
-    VisPublic,
+    parse_macro_input, punctuated::Punctuated, AttributeArgs, Field, Fields, ItemEnum, Lit,
+    Meta, MetaNameValue, NestedMeta, Token, VisPublic,
 };
 
 #[proc_macro_attribute]
@@ -16,11 +16,44 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
     let enum_attrs = &input.attrs;
     let variants = &input.variants;
 
+    // parse module="..." and prefix="..." params if present
+    // and filter them out from the attributes to pass through
+    let mut mod_name = None;
+    let mut custom_prefix = None;
+    let mut passthrough_attrs = Vec::new();
+
+    for arg in &attr_args {
+        if let NestedMeta::Meta(Meta::NameValue(MetaNameValue { path, lit, .. })) = arg {
+            if path.is_ident("module") {
+                if let Lit::Str(s) = lit {
+                    mod_name = Some(Ident::new(&s.value(), Span::call_site()));
+                }
+                continue; // skip it
+            } else if path.is_ident("prefix") {
+                if let Lit::Str(s) = lit {
+                    custom_prefix = Some(s.value());
+                }
+                continue; // skip it
+            }
+        }
+        passthrough_attrs.push(arg);
+    }
+
+    // prefix struct?
+    let default_prefix = name.to_string();
+    let prefix = custom_prefix.as_ref().unwrap_or(&default_prefix);
+
     let make_struct_ident = |variant_ident: &Ident| {
-        Ident::new(
-            &format!("{}{}", name.to_string(), variant_ident.to_string()),
-            Span::call_site(),
-        )
+        if mod_name.is_some() {
+            // if we use mod, don't prefix
+            variant_ident.clone()
+        } else {
+            // use prefix otherwise
+            Ident::new(
+                &format!("{}{}", prefix, variant_ident.to_string()),
+                Span::call_site(),
+            )
+        }
     };
     let variant_structs = variants.iter().map(|v| {
         let variant_ident = &v.ident;
@@ -39,7 +72,7 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
         };
         quote! {
             #(
-                #[#attr_args]
+                #[#passthrough_attrs]
             )*
             #(#variant_attrs)*
             pub struct #struct_ident #fields #semicolon
@@ -71,16 +104,38 @@ pub fn first_class_variants(attr: TokenStream, item: TokenStream) -> TokenStream
     let wrapper_variants = variants.iter().map(|v| {
         let variant_ident = &v.ident;
         let struct_ident = make_struct_ident(variant_ident);
-        quote! {
-            #variant_ident(#struct_ident)
+
+        if let Some(ref mod_ident) = mod_name {
+            quote! {
+                #variant_ident(#mod_ident::#struct_ident)
+            }
+        } else {
+            quote! {
+                #variant_ident(#struct_ident)
+            }
         }
     });
-    let result = quote! {
-        #(#enum_attrs)*
-        #vis enum #name {
-            #(#wrapper_variants,)*
+
+    let result = if let Some(ref mod_ident) = mod_name {
+        // wrap in a module
+        quote! {
+            #(#enum_attrs)*
+            #vis enum #name {
+                #(#wrapper_variants,)*
+            }
+            #vis mod #mod_ident {
+                use super::#name;
+                #(#variant_structs)*
+            }
         }
-        #(#variant_structs)*
+    } else {
+        quote! {
+            #(#enum_attrs)*
+            #vis enum #name {
+                #(#wrapper_variants,)*
+            }
+            #(#variant_structs)*
+        }
     };
     result.into()
 }

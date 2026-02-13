@@ -9,6 +9,18 @@ mod generated {
         Spam { ham: u16, eggs: u32 },
     }
 }
+
+mod with_module {
+    use first_class_variants::first_class_variants;
+    #[first_class_variants(module = "variants", derive(PartialEq, Eq, Copy, Clone))]
+    #[derive(Debug)]
+    pub enum Baz {
+        #[derive(Debug)]
+        Qux(u8),
+        #[derive(Debug)]
+        Corge { grault: u16, garply: u32 },
+    }
+}
 mod tests {
     use crate::generated::*;
     use std::convert::TryInto;
@@ -41,6 +53,45 @@ mod tests {
 
         // or, do it by ref!
         assert!(if let &Ok(FooBar(x)) = &Foo::Bar(FooBar(123)).try_into() {
+            println!("{}", x);
+            true
+        } else {
+            false
+        });
+    }
+
+    #[test]
+    fn works_with_module() {
+        use crate::with_module::{variants::*, Baz};
+
+        let qux = Qux(1);
+        let corge = Corge {
+            grault: 2,
+            garply: 3,
+        };
+
+        let qux_baz: Baz = qux.into();
+        match qux_baz {
+            Baz::Qux(x) => assert_eq!(x, qux),
+            _ => unreachable!("qux_baz isn't a Baz::Qux"),
+        }
+        let corge_baz: Baz = corge.into();
+        match corge_baz {
+            Baz::Corge(x) => assert_eq!(x, corge),
+            _ => unreachable!("corge_baz isn't a Baz::Corge"),
+        }
+
+        let maybe_qux: Result<Qux, ()> = qux_baz.try_into();
+        assert_eq!(maybe_qux, Ok(qux));
+
+        assert!(if let Ok(Qux(x)) = maybe_qux {
+            println!("{}", x);
+            true
+        } else {
+            false
+        });
+
+        assert!(if let &Ok(Qux(x)) = &Baz::Qux(Qux(123)).try_into() {
             println!("{}", x);
             true
         } else {
